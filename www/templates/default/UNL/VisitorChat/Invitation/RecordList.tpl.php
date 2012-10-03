@@ -16,22 +16,26 @@ foreach ($context as $invitation) {
     }
     
     echo "<li class='$class'>
-              <span style='font-weight:bold;'>$name</span>
-			  <span style='display: block;font-size: 0.8em;'>". \UNL\VisitorChat\User\Record::getByID($invitation->users_id)->name ."
+              <span class='name'>$name</span>
+			  <span class='sub'>". \UNL\VisitorChat\User\Record::getByID($invitation->users_id)->name ."
 			  <span style='float:right;'>" .
 			    date("g:i:s A", strtotime($invitation->date_created)) . "</span>" .
 				
-			"</span>
+			"</span>";
+	echo "<ul>";
               
-              <ul>";
     foreach ($invitation->getAssignments() as $assignment) {
-        $class = strtolower($assignment->status);
-        echo "<li class='$class'>
-                  " . $assignment->getUser()->name .
-                  /*"<span class='timestamp'>" . date("g:i:s A", strtotime($assignment->date_created)) . "</span>*/
-              "</li>";
+  		$answeringSite = $assignment->answering_site;
+		$site = \UNL\VisitorChat\Controller::$registryService->getSitesByURL($answeringSite);
+		$site = $site->current();
+	
+        $assignmentClass = strtolower($assignment->status);
+        echo "<li class='$assignmentClass'>" .
+                  "<span class='name'>" . $assignment->getUser()->name . "</span>" .
+                  "<span class='sub'>" . $site->getTitle() . "</span>" .
+            "</li>";
     }
-    echo "</ul></li>";
+	echo "</ul>";
 }
 ?>
 </ul>

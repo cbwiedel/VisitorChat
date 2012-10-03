@@ -7,13 +7,18 @@ class Driver extends \UNL\VisitorChat\CacheableURL implements \UNL\VisitorChat\O
     
     public static $cacheTimeout = 18000;  //seconds (5 hours)
     
-    function query($query)
+    function getQueryURL($query)
     {
-        $url       = self::$baseURI . "?u=" . urlencode($query) . "&output=json";
+        return self::$baseURI . "?u=" . urlencode($query) . "&output=json";
+    }
+    
+    function query($query, $doNotCache = false)
+    {
+        $url       = $this->getQueryURL($query);
         $cachePath = $this->getCachePath($url);
         
         //See if the query is cached, if it is, return it.
-        if ($sites = $this->getCache($cachePath)) {
+        if (!$doNotCache && $sites = $this->getCache($cachePath)) {
             return new SiteList($sites);
         }
         
@@ -28,8 +33,10 @@ class Driver extends \UNL\VisitorChat\CacheableURL implements \UNL\VisitorChat\O
             return false;
         }
         
-        //Set the cache.
-        $this->setCache($cachePath, $sites);
+        if (!$doNotCache) {
+            //Set the cache.
+            $this->setCache($cachePath, $sites);
+        }
         
         return new SiteList($sites);
     }
@@ -39,18 +46,87 @@ class Driver extends \UNL\VisitorChat\CacheableURL implements \UNL\VisitorChat\O
         return "unl_visitorchat_wdn_";
     }
     
-    function getSitesByURL($site)
+    function getSitesByURL($site, $doNotCache = false)
     {
-        return $this->query($site);
+        return $this->query($site, $doNotCache);
     }
     
-    function getSitesForUser($user)
+    function getSitesForUser($user, $doNotCache = false)
     {
-        return $this->query($user);
+        $cachePath = $this->getCachePath($this->getQueryURL($user));
+        
+        if (!$doNotCache && $sites = $this->getCache($cachePath)) {
+            return new SiteList($sites);
+        }
+        
+        //All sites for a user.
+        $sites = $this->query($user, $doNotCache);
+        
+        //Create an array of all sites that need to be removed.
+        $unsets = array();
+        foreach ($sites as $index=>$site) {
+            foreach ($site->getMembers() as $member) {
+                if ($member->getUID() == \UNL\VisitorChat\User\Service::getCurrentUser()->uid) {
+                    //Remove this site from the site list IF the user is not a chat user.
+                    if ($member->getRole() == 'other') {
+                        $unsets[] = $index;
+                        continue 2;
+                    }
+                }
+            }
+        }
+        
+        //remove the sites.
+        foreach ($unsets as $index) {
+            $sites->offsetUnset($index);
+        }
+        
+        //re-cache the results
+        if (!$doNotCache) {
+            //Set the cache.
+            $this->setCache($cachePath, $sites);
+        }
+        
+        return new SiteList($sites);
     }
 
-    function getAllSites()
+    function getAllSites($doNotCache = false)
     {
-        return $this->query('*');
+        $cachePath = $this->getCachePath($this->getQueryURL('*'));
+
+        //Return a cached result if we have it.
+        if (!$doNotCache && $sites = $this->getCache($cachePath)) {
+            return new SiteList($sites);
+        }
+
+        //get all sites
+        $sites = $this->query('*', $doNotCache);
+
+        //create an array of all sites that need to be unset
+        $unsets = array();
+        foreach ($sites as $index=>$site) {
+            foreach ($site->getMembers() as $member) {
+                //Remove this site from the site list IF the user is not a chat user.
+                if ($member->getRole() != 'other') {
+                    continue 2;
+                }
+                
+            }
+            
+            $unsets[] = $index;
+        }
+
+        //remove the sites.
+        foreach ($unsets as $index) {
+            $sites->offsetUnset($index);
+        }
+
+        //re-cache the results
+        if (!$doNotCache) {
+            //Set the cache.
+            $this->setCache($cachePath, $sites);
+        }
+
+        return new SiteList($sites);
     }
 }

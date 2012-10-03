@@ -4,13 +4,16 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
     initialMessage: false,
     confirmationHTML: false,
     userType: 'client',
+    method: 'chat',
 
     startEmail:function () {
-        this.launchChatContainer();
+        this.method = 'email';
+        this.launchEmailContainer();
         this.start();
     },
 
     startChat:function (chatInProgress) {
+        this.method = 'chat';
         this.launchChatContainer();
 
         if (chatInProgress) {
@@ -27,7 +30,6 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         }
 
         WDN.jQuery("#visitorChat_footerHeader").css({'display':'none'});
-        WDN.jQuery("#visitorChat_email").hide();
         WDN.jQuery("#visitorChat_container #visitorChat_email_fallback_text").html('If no operators are available,&nbsp;I would like to receive an email.');
         
         //Due to IE, make sure that we clear the value of the input if it equals the placeholder value
@@ -53,6 +55,20 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
             WDN.jQuery.cookies.set('UNL_Visitorchat_FirstOperatorResponse', difference, {domain:'.unl.edu'});
         }
     },
+    
+    launchEmailContainer:function() {
+        this.chatStatus = "LOGIN";
+        
+        //Remove an old one if it is there.
+        WDN.jQuery('#visitorChat_container').remove();
+        
+        //set up a container.
+        var html = "<div id='visitorChat_container'>Please Wait...</div>";
+        
+        WDN.jQuery("#visitorchat_clientLogin").replaceWith("<div id='visitorChat_container'></div>");
+        
+        WDN.jQuery("#visitorChat_container").show();
+    },
 
     launchChatContainer:function () {
         //Remove an old one if it is there.
@@ -72,15 +88,13 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
 
         this.chatStatus = "LOGIN";
 
-        this.loginHTML = WDN.jQuery("#visitorchat_clientLogin").parent().html();
-
         WDN.jQuery("#visitorchat_clientLogin").parent().html("Disabled");
 
         WDN.jQuery("#visitorChat_header").animate({'width':'204px'}, 200);
 
         //Display and set the name (if found).
         WDN.jQuery("#visitorChat_container").delay(10).slideDown(320, function() {
-            if (WDN.idm.displayName() != undefined) {
+            if (typeof WDN.idm.displayName == 'function' && WDN.idm.displayName() != undefined) {
                 WDN.jQuery("#visitorChat_name").val(WDN.idm.displayName());
             }
         });
@@ -98,15 +112,84 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         return false;
     },
 
+    //Require confirmation that a comment is to be submitted anon.
+    confirmAnonSubmit: function() {
+        var email = WDN.jQuery('#visitorChat_email').val();
+        
+        //If the email is empty, don't submit and append a warning to the form, otherwise continue on.
+        if (email != '') {
+            return true;
+        }
+        
+        //Check if they are confirming anon...
+        if (WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').val() == 'Yes, I do not need a response') {
+            //Reset to say 'submit'.
+            WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').val("Submit");
+            return true;
+        }
+        
+        //Display error and request confirmation before continuing.
+        var html = "<div id='visitorchat_clientLogin_anonwaning'>Since you didn't enter an email, we won't be able to respond. Is this OK?</div>";
+        
+        WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').before(html);
+        WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').val("Yes, I do not need a response");
+        
+        this.initWatchers();
+
+        //remove the warning if they start to enter an email
+        WDN.jQuery("#visitorChat_email").keyup(function () {
+            WDN.jQuery('#visitorchat_clientLogin_anonwaning').remove();
+            WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').val("Submit");
+        });
+        
+        return false;
+    },
+
     ajaxBeforeSubmit:function (arr, $form, options) {
         //Start an email convo now if need be.
         for (key in arr) {
             if (arr[key]['name'] == 'method' && arr[key]['value'] == 'EMAIL') {
-                VisitorChat.startEmail();
+                if (this.confirmAnonSubmit()) {
+                    this.startEmail();
+                } else {
+                    return false;
+                }
             }
         }
         
         return this._super(arr, $form, options);
+    },
+    
+    initValidation: function() {
+        WDN.jQuery.validation.addMethod('validate-require-if-question',
+            'An email address is required if you ask a question so that we can respond.',
+            function(value, object) {
+                var message = WDN.jQuery('#visitorChat_messageBox').val();
+                if (message.indexOf("?") != -1 && value == "") {
+                    return false;
+                }
+                
+                return true;
+            });
+        
+        //Remove the vaildation binding so that validation does not stack and is always called before ajax submit.
+        WDN.jQuery('#visitorchat_clientLogin').data('validation', false);
+        WDN.jQuery('#visitorChat_confirmationEamilForm').data('validation', false);
+        
+        //Require email for questions submitted via the footer comment form.
+        WDN.jQuery('#visitorChat_footercontainer #visitorChat_email').addClass('validate-require-if-question');
+
+        //Validator
+        WDN.jQuery('#visitorchat_clientLogin, #visitorChat_confirmationEamilForm').validation();
+    },
+    
+    initPlaceHolders: function() {
+        //Load placeholders if not supported.
+        if (WDN.hasDocumentClass('no-placeholder')) {
+            WDN.loadJS(WDN.getTemplateFilePath('scripts/plugins/placeholder/jquery.placeholder.min.js'), function() {
+                WDN.jQuery('#visitorChat_footercontainer, #visitorChat').find('[placeholder]').placeholder();
+            });
+        }
     },
 
     initWatchers:function () {
@@ -128,15 +211,16 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
             '#visitorChat_failedOptions_yes,' +
             '#visitorChat_failedOptions_yes,' +
             '#visitorChat_sendAnotherConfirmation,' +
-            '#visitorChat_name').unbind();
-
-        //Load placeholders if not supported.
-        if (WDN.hasDocumentClass('no-placeholder')) {
-            WDN.loadJS(WDN.getTemplateFilePath('scripts/plugins/placeholder/jquery.placeholder.min.js'), function() {
-                WDN.jQuery('#visitorChat_footercontainer, #visitorChat').find('[placeholder]').placeholder();
-            });
-        }
+            '#visitorChat_name,' +
+            '#visitorChat_footercontainer #visitorchat_clientLogin,' +
+            '#visitorchat_clientLogin,' +
+            '.unl_visitorchat_form,' +
+            '#visitorChat_confirmationEamilForm').unbind();
         
+        this.initPlaceHolders();
+        
+        this.initValidation();
+
         //Reveal timestamp
         WDN.jQuery("#visitorChat_chatBox > ul > li").hover(
             function () {
@@ -154,10 +238,20 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         //Make sure the chat input is only submitting as chat.
         WDN.jQuery("#visitorChat_container #visitorChat_login_chatmethod").val("CHAT");
 
-        //Validator
-        WDN.jQuery('#visitorchat_clientLogin, #visitorChat_confirmationEamilForm').validation();
+        WDN.jQuery('#visitorchat_clientLogin').bind('validate-form', function (event, result) {
+            if (!result) {
+                VisitorChat.initPlaceHolders();
+            }
+        });
 
         WDN.jQuery('#visitorChat_footercontainer #visitorchat_clientLogin').bind('validate-form', function (event, result) {
+            WDN.jQuery('#visitorchat_clientLogin_anonwaning').remove();
+            
+            if (WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').val() == 'Yes, no response needed'
+                && WDN.jQuery('#visitorChat_email').val() != '') {
+                WDN.jQuery('#visitorChat_footercontainer #visitorChat_login_submit').val("Submit");
+            }
+            
             return true;
         });
 
@@ -210,7 +304,11 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
             if (this.chatStatus == 'CHATTING' && !VisitorChat.confirmClose()) {
                 return false;
             }
-
+            
+            //change the method to chat, so that the chat window will close.
+            //it MIGHT be open due to captcha.  
+            this.method = 'chat';
+            
             VisitorChat.stop();
 
             return false;
@@ -280,10 +378,25 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         WDN.jQuery('#initial_pagetitle').val(WDN.jQuery(document).attr('title'));
     },
 
+    /**
+     * onConversationStatus_Emailed
+     * Related status code: EMAILED
+     * Details: This function will be called when a converstation
+     * falls back to an email.  This means that an operator was not available
+     * but an email could be sent.
+     */
+    onConversationStatus_Emailed:function (data) {
+        this._super();
+        
+        if (this.method == 'email') {
+            this.stop();
+        }
+    },
+
     onLogin:function () {
         this.clientName = WDN.jQuery("#visitorChat_name").val();
         this.initialMessage = WDN.jQuery("#visitorChat_messageBox").val();
-
+        
         this._super();
 
         //Record a start event cookie (for analytics)
@@ -309,6 +422,8 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         if (WDN.jQuery("#visitorChat_confirmationContainer").length != 0) {
             return false;
         }
+
+        WDN.jQuery('#visitorChat_end').hide();
 
         this._super(data);
 
@@ -369,7 +484,7 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         if (data['loginHTML'] !== undefined && data['loginHTML']) {
             this.loginHTML = data['loginHTML'];
             
-            WDN.jQuery("#wdn_feedback_comments").replaceWith(this.loginHTML);
+            WDN.jQuery("#wdn_feedback_comments").replaceWith("<div id='visitorChat_footercontainer'>" + this.loginHTML + "</div>");
             
             //media queries are not supported in ie8, so show the footer container by default.
             if (WDN.jQuery("html").hasClass('ie8')) {
@@ -387,14 +502,11 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         this.displaySiteAvailability();
     },
 
-    onConversationStatus_Emailed:function (data) {
-        this.displayLogoutButton();
-        clearTimeout(VisitorChat.loopID);
-        var html = '<div class="chat_notify">Thank you, an email has been sent!</div>';
-        this.updateChatContainerWithHTML("#visitorChat_container", html);
-    },
-
     onConversationStatus_Captcha:function (data) {
+        if (this.method == 'email') {
+            this.launchChatContainer();
+        }
+        
         this.displayLogoutButton();
         
         this.updateChatContainerWithHTML("#visitorChat_container", data['html']);
@@ -465,20 +577,24 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
             return true;
         }
 
-        callbackSet = false;
-        if (WDN.jQuery('#visitorChat_container').is(":visible")) {
-            callbackSet = true;
-            WDN.jQuery("#visitorChat_container").slideUp(400, WDN.jQuery.proxy(function () {
-                if (callback) {
-                    callback();
-                }
-            }, this));
+        if (this.method != 'email') {
+            callbackSet = false;
+            if (WDN.jQuery('#visitorChat_container').is(":visible")) {
+                callbackSet = true;
+                WDN.jQuery("#visitorChat_container").slideUp(400, WDN.jQuery.proxy(function () {
+                    if (callback) {
+                        callback();
+                    }
+                }, this));
+            }
         }
-
+        
         this._super();
-
-        this.closeChatContainer();
-
+        
+        if (this.method != 'email') {
+            this.closeChatContainer();
+        }
+        
         if (WDN.jQuery.cookies.get('UNL_Visitorchat_Start')) {
             date = new Date();
             date = Math.round(date.getTime() / 1000);
@@ -503,7 +619,7 @@ var VisitorChat_Chat = VisitorChat_ChatBase.extend({
         WDN.jQuery("#visitorChat_logout").css({'display':'none'});
         WDN.jQuery("#visitorChat_header").animate({'width':'105px'}, 200);
 
-        WDN.jQuery("#visitorChat_footercontainer").html(this.loginHTML);
+        WDN.jQuery("#visitorChat_footercontainer").html("<div id='visitorChat_footercontainer'>" + this.loginHTML + "</div>");
         WDN.jQuery("#visitorChat_footerHeader").css({'display':'block'});
 
         if (!this.operatorsAvailable) {
